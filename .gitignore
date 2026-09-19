@@ -1,0 +1,112 @@
+# ============================================================
+# ClipForge AI - Git Ignore
+# ============================================================
+
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# -------------------------
+# Virtual environments
+# -------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# -------------------------
+# Python tooling
+# -------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# -------------------------
+# IDE / Editors
+# -------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# -------------------------
+# OS generated files
+# -------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# -------------------------
+# Environment / secrets
+# -------------------------
+.env
+.env.*
+!.env.example
+
+# -------------------------
+# ClipForge AI runtime data
+# -------------------------
+
+# Temporary processing files
+data/temp/
+
+# Runtime logs
+data/logs/
+
+# Generated output
+data/output/
+
+# -------------------------
+# Whisper / AI models
+# -------------------------
+models/whisper/
+
+# -------------------------
+# Generated video files
+# -------------------------
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+
+# -------------------------
+# Generated audio files
+# -------------------------
+*.mp3
+*.wav
+*.aac
+*.flac
+*.m4a
+
+# -------------------------
+# Generated image files
+# -------------------------
+*.jpg
+*.jpeg
+*.webp
+
+# -------------------------
+# Build / packaging output
+# -------------------------
+build/
+dist/
+*.spec
+
+# -------------------------
+# PyInstaller
+# -------------------------
+*.manifest
+*.pyi
+
+# -------------------------
+# Application caches
+# -------------------------
+.cache/
+cache/
