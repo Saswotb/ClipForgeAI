@@ -34,106 +34,83 @@ class FFmpegService:
         return path
 
     def extract_audio(
-        self,
-        video_path: Path,
-        output_path: Path,
-        sample_rate: int = 16000,
-        channels: int = 1,
+        self, video_path: Path, output_path: Path, 
+        sample_rate: int = 16000, channels: int = 1
     ) -> Path:
         self.check_ffmpeg()
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         cmd: List[str] = [
-            self._ffmpeg_path, "-y",
-            "-i", str(video_path),
-            "-vn",
-            "-acodec", "pcm_s16le",
-            "-ar", str(sample_rate),
-            "-ac", str(channels),
+            self._ffmpeg_path, "-y", "-i", str(video_path), "-vn",
+            "-acodec", "pcm_s16le", "-ar", str(sample_rate), "-ac", str(channels),
             str(output_path),
         ]
 
         logger.info(f"Extracting audio: '{video_path.name}' -> '{output_path.name}'")
         self._run_command(cmd)
-
-        if not output_path.exists() or output_path.stat().st_size == 0:
-            raise FFmpegError("Audio extraction produced no output file.")
-
         return output_path
 
     def cut_clip(
-        self,
-        video_path: Path,
-        start_time: float,
-        duration: float,
-        output_path: Path
+        self, video_path: Path, start_time: float, duration: float, output_path: Path
     ) -> Path:
-        """
-        Cuts a specific segment from a video.
-        Re-encodes to ensure frame-accurate start and end times.
-        """
         self.check_ffmpeg()
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         cmd: List[str] = [
-            self._ffmpeg_path, "-y",
-            "-ss", str(start_time),      # Fast seek to start time
-            "-i", str(video_path),       # Input
-            "-t", str(duration),         # Duration of the clip
-            "-c:v", "libx264",           # Re-encode video for exact cuts
-            "-preset", "fast",
-            "-crf", "23",                # Standard quality
-            "-c:a", "aac",               # Re-encode audio
-            "-b:a", "192k",
-            str(output_path),
+            self._ffmpeg_path, "-y", "-ss", str(start_time), "-i", str(video_path),
+            "-t", str(duration), "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "192k", str(output_path),
         ]
 
-        logger.info(f"Cutting clip: '{video_path.name}' ({start_time:.2f}s to {start_time + duration:.2f}s) -> '{output_path.name}'")
+        logger.info(f"Cutting clip: '{video_path.name}' -> '{output_path.name}'")
         self._run_command(cmd)
-
-        if not output_path.exists() or output_path.stat().st_size == 0:
-            raise FFmpegError(f"Clip generation failed for {output_path.name}")
-
         return output_path
 
     def convert_to_vertical(
-        self,
-        clip_path: Path,
-        output_path: Path,
-        width: int = 1080,
-        height: int = 1920
+        self, clip_path: Path, output_path: Path, width: int = 1080, height: int = 1920
     ) -> Path:
+        self.check_ffmpeg()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        video_filter = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
+        cmd: List[str] = [
+            self._ffmpeg_path, "-y", "-i", str(clip_path), "-vf", video_filter,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "copy",
+            str(output_path),
+        ]
+
+        logger.info(f"Converting to vertical: '{clip_path.name}' -> '{output_path.name}'")
+        self._run_command(cmd)
+        return output_path
+
+    def burn_subtitles(self, video_path: Path, subtitle_path: Path, output_path: Path) -> Path:
         """
-        Converts a clip to vertical 9:16 format.
-        Uses a center-crop strategy that scales the video to fill the frame 
-        without stretching, preserving the original aspect ratio of the content.
+        Burns an SRT file into the video. 
+        Includes specific path escaping required for FFmpeg on Windows.
         """
         self.check_ffmpeg()
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Filter explanation:
-        # 1. scale=...:increase -> Scales the video so the smaller dimension fits the target, 
-        #    ensuring the video completely covers the 1080x1920 area.
-        # 2. crop=1080:1920 -> Crops the excess edges to exactly 1080x1920.
-        video_filter = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
+        # FFmpeg requires escaping for Windows paths in the subtitles filter
+        # 1. Convert to absolute path
+        # 2. Replace backslashes with forward slashes (as_posix)
+        # 3. Escape the colon in the drive letter (e.g., C\: )
+        sub_path_str = str(subtitle_path.resolve().as_posix()).replace(':', '\\:')
+        
+        # Style override: White text, black outline, bottom margin
+        vf = (
+            f"subtitles='{sub_path_str}':force_style="
+            "'Fontsize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,MarginV=40'"
+        )
 
         cmd: List[str] = [
-            self._ffmpeg_path, "-y",
-            "-i", str(clip_path),
-            "-vf", video_filter,
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "23",
-            "-c:a", "copy",             # Copy audio stream (no need to re-encode)
+            self._ffmpeg_path, "-y", "-i", str(video_path), "-vf", vf,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "copy",
             str(output_path),
         ]
 
-        logger.info(f"Converting to vertical ({width}x{height}): '{clip_path.name}' -> '{output_path.name}'")
+        logger.info(f"Burning subtitles: '{video_path.name}' -> '{output_path.name}'")
         self._run_command(cmd)
-
-        if not output_path.exists() or output_path.stat().st_size == 0:
-            raise FFmpegError(f"Vertical conversion failed for {output_path.name}")
-
         return output_path
 
     def _run_command(self, cmd: List[str]) -> subprocess.CompletedProcess:
@@ -141,26 +118,15 @@ class FFmpegService:
 
         try:
             result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8", errors="replace", check=False,
             )
         except FileNotFoundError as exc:
-            raise FFmpegNotFoundError("FFmpeg executable disappeared during execution.") from exc
+            raise FFmpegNotFoundError("FFmpeg executable disappeared.") from exc
 
         if result.returncode != 0:
             stderr_tail = (result.stderr or "").strip()[-800:]
-            logger.error(
-                f"FFmpeg exited with code {result.returncode}.\n"
-                f"Command: {' '.join(cmd)}\n"
-                f"stderr: {stderr_tail}"
-            )
-            raise FFmpegError(
-                f"FFmpeg exited with code {result.returncode}. See logs for details."
-            )
+            logger.error(f"FFmpeg exited with code {result.returncode}.\nstderr: {stderr_tail}")
+            raise FFmpegError(f"FFmpeg exited with code {result.returncode}. See logs.")
 
         return result
