@@ -185,5 +185,6 @@ class ProcessingEngine:
             logger.error(f"Unexpected engine error: {exc}", exc_info=True)
         else:
             logger.error(f"Engine error at {stage}: {exc}")
+
             
         self._emit(stage, 0.0, "Processing failed.", error=str(exc), finished=True)
