@@ -6,7 +6,7 @@ from queue import Queue
 from typing import Optional
 
 from src.config.paths import TEMP_AUDIO_DIR
-from src.config.settings import WHISPER_MODEL
+from src.config.settings import WHISPER_MODEL, MIN_CLIP_DURATION, MAX_CLIP_DURATION
 from src.models.processing_job import ProcessingJob, JobStatus
 from src.services.ffmpeg_service import (
     FFmpegService,
@@ -14,13 +14,15 @@ from src.services.ffmpeg_service import (
     FFmpegError,
 )
 from src.core.transcriber import Transcriber
+from src.core.scene_detector import SceneDetector
+from src.core.highlight_detector import HighlightDetector
 from src.utils.logger import get_logger
 from src.utils.validators import validate_video_file, validate_output_directory
 
 logger = get_logger(__name__)
 
 class EngineStage(Enum):
-    """All processing stages. Milestone 4 implements up to Transcribing."""
+    """All processing stages. Milestone 5 implements up to Detecting Highlights."""
     VALIDATING = "Validating"
     EXTRACTING_AUDIO = "Extracting audio"
     TRANSCRIBING = "Transcribing"
@@ -106,9 +108,9 @@ class ProcessingEngine:
         job = self.current_job
 
         try:
-            # --- Stage 1: Validation (0% - 10%) ---
+            # --- Stage 1: Validation (0% - 5%) ---
             job.mark_running(EngineStage.VALIDATING.value)
-            self._emit(EngineStage.VALIDATING.value, 0.05, "Validating video...")
+            self._emit(EngineStage.VALIDATING.value, 0.02, "Validating video...")
             validate_video_file(video_path)
             validate_output_directory(TEMP_AUDIO_DIR)
             self.ffmpeg.check_ffmpeg()
@@ -119,9 +121,9 @@ class ProcessingEngine:
                            error="Cancelled by user.", finished=True)
                 return
 
-            # --- Stage 2: Audio Extraction (10% - 30%) ---
+            # --- Stage 2: Audio Extraction (5% - 15%) ---
             job.mark_running(EngineStage.EXTRACTING_AUDIO.value)
-            self._emit(EngineStage.EXTRACTING_AUDIO.value, 0.15, "Extracting audio...")
+            self._emit(EngineStage.EXTRACTING_AUDIO.value, 0.08, "Extracting audio...")
 
             audio_path = TEMP_AUDIO_DIR / f"{job.job_id}_{video_path.stem}.wav"
             self.ffmpeg.extract_audio(video_path, audio_path)
@@ -132,13 +134,13 @@ class ProcessingEngine:
                            error="Cancelled by user.", finished=True)
                 return
 
-            # --- Stage 3: Transcription (30% - 80%) ---
+            # --- Stage 3: Transcription (15% - 45%) ---
             job.mark_running(EngineStage.TRANSCRIBING.value)
-            self._emit(EngineStage.TRANSCRIBING.value, 0.35, "Loading AI model...")
+            self._emit(EngineStage.TRANSCRIBING.value, 0.20, "Loading AI model...")
             
             transcriber = Transcriber(model_name=WHISPER_MODEL)
             
-            self._emit(EngineStage.TRANSCRIBING.value, 0.45, "Transcribing audio...")
+            self._emit(EngineStage.TRANSCRIBING.value, 0.25, "Transcribing audio...")
             transcript = transcriber.transcribe(audio_path, job.job_id)
 
             if self._cancelled():
@@ -147,15 +149,44 @@ class ProcessingEngine:
                            error="Cancelled by user.", finished=True)
                 return
 
-            # --- Milestone 4 Complete ---
+            # --- Stage 4: Scene Detection (45% - 60%) ---
+            job.mark_running(EngineStage.DETECTING_SCENES.value)
+            self._emit(EngineStage.DETECTING_SCENES.value, 0.50, "Analyzing visual scenes...")
+            
+            scene_detector = SceneDetector()
+            scenes = scene_detector.detect_scenes(video_path)
+
+            if self._cancelled():
+                job.mark_cancelled()
+                self._emit(EngineStage.DETECTING_SCENES.value, 0.0, "Cancelled.",
+                           error="Cancelled by user.", finished=True)
+                return
+
+            # --- Stage 5: Highlight Detection (60% - 95%) ---
+            job.mark_running(EngineStage.DETECTING_HIGHLIGHTS.value)
+            self._emit(EngineStage.DETECTING_HIGHLIGHTS.value, 0.65, "Finding highlight candidates...")
+            
+            highlight_detector = HighlightDetector(
+                min_duration=MIN_CLIP_DURATION, 
+                max_duration=MAX_CLIP_DURATION
+            )
+            candidates = highlight_detector.find_candidates(transcript, scenes, top_n=5)
+
+            if self._cancelled():
+                job.mark_cancelled()
+                self._emit(EngineStage.DETECTING_HIGHLIGHTS.value, 0.0, "Cancelled.",
+                           error="Cancelled by user.", finished=True)
+                return
+
+            # --- Milestone 5 Complete ---
             job.mark_completed()
             self._emit(
                 EngineStage.COMPLETED.value,
                 1.0,
-                f"Transcription complete ({len(transcript.segments)} segments).",
+                f"Found {len(candidates)} highlight candidates.",
                 finished=True,
             )
-            logger.info(f"Job {job.job_id} completed Milestone 4 pipeline.")
+            logger.info(f"Job {job.job_id} completed Milestone 5 pipeline. Found {len(candidates)} highlights.")
 
         except FFmpegNotFoundError as exc:
             job.mark_failed(str(exc))
